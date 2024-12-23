@@ -6,13 +6,13 @@ require_once 'internal/db_connection.php';
 // Function to initialize the game
 function initializeGame($player1Name, $player2Name) {
     try {
-        // Create a 7x7 board (can be stored in session or database if required)
-        $board = array_fill(0, 7, array_fill(0, 7, 0)); // 7x7 array filled with 0s
+
+        $board = array_fill(0, 11, array_fill(0, 11, 0));
         // Call the function to create the game and get the IDs
         $gameData = createGameWithPlayers($player1Name, $player2Name);
 
         if ($gameData) {
-            // Store player names and board in session
+            // Store player names and board in session for later
             $_SESSION['player1_name'] = $player1Name;
             $_SESSION['player2_name'] = $player2Name;
             $_SESSION['board'] = $board;
@@ -71,7 +71,7 @@ function createGameWithPlayers($player1Name, $player2Name) {
 }
 
 function makeMove($gameId, $playerId, $pieceId, $startX, $startY) {
-    $corners = [[0, 0], [0, 6], [6, 0], [6, 6]];
+    $corners = [[0, 0], [0, 10], [10, 0], [10, 10]];
     $isFirstMove = false;
 
     try {
@@ -133,14 +133,23 @@ function makeMove($gameId, $playerId, $pieceId, $startX, $startY) {
         $board = reconstructBoard($gameId);
         printBoard($board);
 
-        // Determine next player
+        // Determine the next player
         $nextPlayerId = getNextPlayer($gameId, $playerId);
 
-        // Fetch next player's available pieces
+        // Fetch the next player's name
+        $stmt = $conn->prepare("SELECT Name FROM Players WHERE ID = ?");
+        $stmt->bind_param("i", $nextPlayerId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $nextPlayer = $result->fetch_assoc();
+
+        echo "<h3>Next Player: " . htmlspecialchars($nextPlayer['Name']) . "</h3>";
+
+        // Fetch the next player's available pieces
         $availablePieces = getAvailablePieces($nextPlayerId, $gameId);
 
         // Show the next player's pieces
-        echo "<h3>Next Player's Available Pieces</h3>";
+        echo "<h3>Available Pieces</h3>";
         printAvailablePieces($availablePieces);
     } catch (Exception $e) {
         echo "Error: " . $e->getMessage();
@@ -152,15 +161,18 @@ function makeMove($gameId, $playerId, $pieceId, $startX, $startY) {
 
 function reconstructBoard($gameId) {
     $conn = getDatabaseConnection();
+
+    // Fetch all occupied cells for the given game
     $stmt = $conn->prepare("SELECT posX, posY, player_id FROM BoardState WHERE game_id = ?");
     $stmt->bind_param("i", $gameId);
     $stmt->execute();
     $result = $stmt->get_result();
 
-    $board = array_fill(0, 7, array_fill(0, 7, '_')); // Initialize a 7x7 board with empty cells
+    $board = array_fill(0, 11, array_fill(0, 11, '_'));
 
+    // Populate the board with player IDs
     while ($row = $result->fetch_assoc()) {
-        $board[$row['posY']][$row['posX']] = 'P' . $row['player_id']; // Mark cell with player's ID
+        $board[$row['posY']][$row['posX']] = 'P' . $row['player_id'];
     }
 
     $stmt->close();
@@ -174,7 +186,16 @@ function printBoard($board) {
     foreach ($board as $row) {
         echo "<tr>";
         foreach ($row as $cell) {
-            echo "<td style='width: 20px; height: 20px; text-align: center; border: 1px solid #ccc;'>$cell</td>";
+            // Determine the color based on the cell value
+            $color = "white"; // Default empty cell color
+            if ($cell === 'P1') {
+                $color = "red"; // Player 1's pieces in red
+            } elseif ($cell === 'P2') {
+                $color = "blue"; // Player 2's pieces in blue
+            }
+
+            // Render the cell
+            echo "<td style='width: 20px; height: 20px; background: $color; border: 1px solid #ccc; text-align: center;'>$cell</td>";
         }
         echo "</tr>";
     }
