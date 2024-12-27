@@ -3,28 +3,80 @@
 session_start(); // Start or resume the session
 require_once 'internal/db_connection.php';
 
+function initializeEmptyBoard() {
+    return array_fill(0, 11, array_fill(0, 11, '_'));
+}
+
+
+
 // Function to initialize the game
-function initializeGame($player1Name, $player2Name) {
+function initializeGame($player1, $player2) {
     try {
+        $conn = getDatabaseConnection();
 
-        $board = array_fill(0, 11, array_fill(0, 11, 0));
-        // Call the function to create the game and get the IDs
-        $gameData = createGameWithPlayers($player1Name, $player2Name);
-
-        if ($gameData) {
-            // Store player names and board in session for later
-            $_SESSION['player1_name'] = $player1Name;
-            $_SESSION['player2_name'] = $player2Name;
-            $_SESSION['board'] = $board;
-
-            echo "Game initialized successfully!";
-        } else {
-            throw new Exception("Failed to initialize the game.");
+        // Call the stored procedure to create the game and players
+        $stmt = $conn->prepare("CALL CreateGameWithPlayers(?, ?)");
+        $stmt->bind_param("ss", $player1, $player2);
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to initialize the game: " . $stmt->error);
         }
+
+        // Consume the result set from CreateGameWithPlayers
+        $result = $stmt->get_result();
+        $gameData = $result->fetch_assoc();
+        $gameId = $gameData['game_id'];
+        $player1Id = $gameData['player1_id'];
+        $player2Id = $gameData['player2_id'];
+
+        // Close the result set and statement
+        $result->free();
+        $stmt->close();
+
+        echo "Game initialized successfully!<br>";
+
+        // Display the empty board
+        $board = initializeEmptyBoard();
+        echo "<h3>Initial Board</h3>";
+        printBoard($board);
+
+        // Show the first player's turn
+        echo "<h3>Player 1's Turn: $player1</h3>";
+
+        // Fetch and display Player 1's available pieces
+        $stmt = $conn->prepare("CALL GetAvailablePieces(?, ?)");
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement for available pieces: " . $conn->error);
+        }
+
+        $stmt->bind_param("ii", $player1Id, $gameId);
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to fetch available pieces: " . $stmt->error);
+        }
+
+        $result = $stmt->get_result();
+        $availablePieces = [];
+        while ($row = $result->fetch_assoc()) {
+            $availablePieces[] = $row;
+        }
+
+        echo "<h3>Available Pieces</h3>";
+        printAvailablePieces($availablePieces);
+
+        // Close the result set and statement
+        $result->free();
+        $stmt->close();
+
     } catch (Exception $e) {
         echo "Error: " . $e->getMessage();
+    } finally {
+        if (isset($conn)) {
+            $conn->close();
+        }
     }
 }
+
+
+
 
 // Function to create the game and insert players into the database
 function createGameWithPlayers($player1Name, $player2Name) {
@@ -71,73 +123,50 @@ function createGameWithPlayers($player1Name, $player2Name) {
 }
 
 function makeMove($gameId, $playerId, $pieceId, $startX, $startY) {
-    $corners = [[0, 0], [0, 10], [10, 0], [10, 10]];
-    $isFirstMove = false;
-
     try {
         $conn = getDatabaseConnection();
 
-        // Check if the board is empty (first move)
-        $stmt = $conn->prepare("SELECT COUNT(*) AS cell_count FROM BoardState WHERE game_id = ?");
-        $stmt->bind_param("i", $gameId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $row = $result->fetch_assoc();
-
-        if ($row['cell_count'] == 0) {
-            $isFirstMove = true;
+        if ($conn === null) {
+            throw new Exception("Database connection is null in makeMove.");
         }
 
-        // Fetch piece details
-        $stmt = $conn->prepare("SELECT shape, sizeX, sizeY FROM Pieces WHERE ID = ?");
-        $stmt->bind_param("i", $pieceId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $piece = $result->fetch_assoc();
-
-        if (!$piece) {
-            throw new Exception("Piece not found.");
-        }
-
-        $shape = $piece['shape'];
-        $sizeX = $piece['sizeX'];
-        $sizeY = $piece['sizeY'];
-
-        // Validate the move
-        if ($isFirstMove) {
-            // First move: Validate that the piece touches one of the corners
-            $touchesCorner = false;
-            foreach ($corners as $corner) {
-                if ($startX <= $corner[0] && $startY <= $corner[1] &&
-                        ($startX + $sizeX - 1) >= $corner[0] &&
-                        ($startY + $sizeY - 1) >= $corner[1]) {
-                    $touchesCorner = true;
-                    break;
-                }
-            }
-
-            if (!$touchesCorner) {
-                throw new Exception("The first move must touch one of the board's corners.");
-            }
-        } else {
-            // Subsequent move: Add adjacency and overlap checks here
-        }
-
-        // Call the stored procedure to store the move
+        // Call the stored procedure to place the piece
         $stmt = $conn->prepare("CALL PlacePiece(?, ?, ?, ?, ?)");
-        $stmt->bind_param("iiiii", $gameId, $playerId, $pieceId, $startX, $startY);
-        $stmt->execute();
+        if (!$stmt) {
+            throw new Exception("Statement preparation failed: " . $conn->error);
+        }
 
-        // Reconstruct the board
-        echo "<h3>Updated Board</h3>";
+        $stmt->bind_param("iiiii", $gameId, $playerId, $pieceId, $startX, $startY);
+        if (!$stmt->execute()) {
+            throw new Exception("Execution failed: " . $stmt->error);
+        }
+        echo "Move placed successfully.<br>";
+
+        // Mark the piece as used in the PlayerPieces table
+        $stmt = $conn->prepare("UPDATE PlayerPieces SET used = TRUE WHERE game_id = ? AND player_id = ? AND piece_id = ?");
+        if (!$stmt) {
+            throw new Exception("Statement preparation failed: " . $conn->error);
+        }
+        $stmt->bind_param("iii", $gameId, $playerId, $pieceId);
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to mark piece as used: " . $stmt->error);
+        }
+
+
+// Reconstruct and display the updated board
         $board = reconstructBoard($gameId);
+        echo "<h3>Updated Board</h3>";
         printBoard($board);
 
-        // Determine the next player
+        // Determine the next player's ID
         $nextPlayerId = getNextPlayer($gameId, $playerId);
 
         // Fetch the next player's name
         $stmt = $conn->prepare("SELECT Name FROM Players WHERE ID = ?");
+        if (!$stmt) {
+            throw new Exception("Statement preparation failed: " . $conn->error);
+        }
+
         $stmt->bind_param("i", $nextPlayerId);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -145,17 +174,31 @@ function makeMove($gameId, $playerId, $pieceId, $startX, $startY) {
 
         echo "<h3>Next Player: " . htmlspecialchars($nextPlayer['Name']) . "</h3>";
 
-        // Fetch the next player's available pieces
-        $availablePieces = getAvailablePieces($nextPlayerId, $gameId);
+        // Fetch the next player's available pieces using the stored procedure
+        $stmt = $conn->prepare("CALL GetAvailablePieces(?, ?)");
+        if (!$stmt) {
+            throw new Exception("Statement preparation failed: " . $conn->error);
+        }
 
-        // Show the next player's pieces
+        $stmt->bind_param("ii", $nextPlayerId, $gameId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        // Collect available pieces
+        $availablePieces = [];
+        while ($row = $result->fetch_assoc()) {
+            $availablePieces[] = $row;
+        }
+
+        // Display the next player's available pieces
         echo "<h3>Available Pieces</h3>";
         printAvailablePieces($availablePieces);
     } catch (Exception $e) {
         echo "Error: " . $e->getMessage();
     } finally {
-        $stmt->close();
-        $conn->close();
+        if (isset($conn)) {
+            $conn->close();
+        }
     }
 }
 
@@ -182,11 +225,18 @@ function reconstructBoard($gameId) {
 }
 
 function printBoard($board) {
+    echo "<h3>Debug: Board Structure</h3>";
+
+    // Debug output of the board structure
+    foreach ($board as $row) {
+        echo implode("", $row) . "<br>";
+    }
+
+    // Render the board visually
     echo "<table style='border-collapse: collapse;'>";
     foreach ($board as $row) {
         echo "<tr>";
         foreach ($row as $cell) {
-            // Determine the color based on the cell value
             $color = "white"; // Default empty cell color
             if ($cell === 'P1') {
                 $color = "red"; // Player 1's pieces in red
@@ -194,13 +244,13 @@ function printBoard($board) {
                 $color = "blue"; // Player 2's pieces in blue
             }
 
-            // Render the cell
             echo "<td style='width: 20px; height: 20px; background: $color; border: 1px solid #ccc; text-align: center;'>$cell</td>";
         }
         echo "</tr>";
     }
     echo "</table>";
 }
+
 
 function getNextPlayer($gameId, $currentPlayerId) {
     // Fetch player IDs from the Games table
@@ -250,7 +300,7 @@ function printAvailablePieces($pieces) {
         echo "<div style='margin: 10px;'>";
         echo "<p>Piece ID: {$piece['ID']} (Size: {$piece['sizeX']}x{$piece['sizeY']})</p>";
 
-        // Convert shape to an HTML table
+        // Convert the shape into an HTML table
         $rows = explode("\n", $piece['shape']);
         echo "<table style='border-collapse: collapse;'>";
         foreach ($rows as $row) {
