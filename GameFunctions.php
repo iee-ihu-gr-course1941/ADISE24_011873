@@ -7,8 +7,6 @@ function initializeEmptyBoard() {
     return array_fill(0, 11, array_fill(0, 11, '_'));
 }
 
-
-
 // Function to initialize the game
 function initializeGame($player1, $player2) {
     try {
@@ -28,7 +26,13 @@ function initializeGame($player1, $player2) {
         $player1Id = $gameData['player1_id'];
         $player2Id = $gameData['player2_id'];
 
-        // Close the result set and statement
+        // Store game data in session variables
+        $_SESSION['gameId'] = $gameId;
+        $_SESSION['player1Id'] = $player1Id;
+        $_SESSION['player2Id'] = $player2Id;
+        $_SESSION['currentTurn'] = $player1Id;
+
+// Close the result set and statement
         $result->free();
         $stmt->close();
 
@@ -65,7 +69,6 @@ function initializeGame($player1, $player2) {
         // Close the result set and statement
         $result->free();
         $stmt->close();
-
     } catch (Exception $e) {
         echo "Error: " . $e->getMessage();
     } finally {
@@ -74,9 +77,6 @@ function initializeGame($player1, $player2) {
         }
     }
 }
-
-
-
 
 // Function to create the game and insert players into the database
 function createGameWithPlayers($player1Name, $player2Name) {
@@ -135,13 +135,22 @@ function makeMove($gameId, $playerId, $pieceId, $startX, $startY) {
         if (!$stmt) {
             throw new Exception("Statement preparation failed: " . $conn->error);
         }
-
+        
         $stmt->bind_param("iiiii", $gameId, $playerId, $pieceId, $startX, $startY);
         if (!$stmt->execute()) {
             throw new Exception("Execution failed: " . $stmt->error);
         }
-        echo "Move placed successfully.<br>";
+        
+         // Change turns
+        if ($_SESSION['currentTurn'] === $_SESSION['player1Id']) {
+            $_SESSION['currentTurn'] = $_SESSION['player2Id']; // Switch to Player 2
+        } else {
+            $_SESSION['currentTurn'] = $_SESSION['player1Id']; // Switch to Player 1
+        }
 
+        echo "Move completed! It's now Player " . ($_SESSION['currentTurn'] === $_SESSION['player1Id'] ? "1's" : "2's") . " turn.";
+        
+        
         // Mark the piece as used in the PlayerPieces table
         $stmt = $conn->prepare("UPDATE PlayerPieces SET used = TRUE WHERE game_id = ? AND player_id = ? AND piece_id = ?");
         if (!$stmt) {
@@ -225,14 +234,8 @@ function reconstructBoard($gameId) {
 }
 
 function printBoard($board) {
-    echo "<h3>Debug: Board Structure</h3>";
 
-    // Debug output of the board structure
-    foreach ($board as $row) {
-        echo implode("", $row) . "<br>";
-    }
-
-    // Render the board visually
+// Render the board visually
     echo "<table style='border-collapse: collapse;'>";
     foreach ($board as $row) {
         echo "<tr>";
@@ -250,7 +253,6 @@ function printBoard($board) {
     }
     echo "</table>";
 }
-
 
 function getNextPlayer($gameId, $currentPlayerId) {
     // Fetch player IDs from the Games table
@@ -295,27 +297,41 @@ function getAvailablePieces($playerId, $gameId) {
 }
 
 function printAvailablePieces($pieces) {
-    echo "<div style='display: flex; flex-wrap: wrap; gap: 20px;'>";
+// Make sure currentTurn is set and if it's not then use player1's turn
+    if (!isset($_SESSION['currentTurn'])) {
+        $_SESSION['currentTurn'] = $_SESSION['player1Id'];
+    }
+
+// Determine player's color based on session data
+    $playerColor = ($_SESSION['currentTurn'] === $_SESSION['player1Id']) ? 'red' : 'blue';
+
+    $playerColor = ($_SESSION['currentTurn'] === $_SESSION['player1Id']) ? 'red' : 'blue';
+    echo "<div style='display: flex; flex-wrap: wrap; gap: 20px;'>"; // Flexbox for layout
     foreach ($pieces as $piece) {
-        echo "<div style='margin: 10px;'>";
+        echo "<div style='margin: 10px;'>"; // Container for each piece
         echo "<p>Piece ID: {$piece['ID']} (Size: {$piece['sizeX']}x{$piece['sizeY']})</p>";
 
-        // Convert the shape into an HTML table
-        $rows = explode("\n", $piece['shape']);
+        // Render the piece shape
+        $shape = $piece['shape'];
+        $sizeX = $piece['sizeX'];
+        $sizeY = $piece['sizeY'];
+
         echo "<table style='border-collapse: collapse;'>";
-        foreach ($rows as $row) {
+        for ($row = 0; $row < $sizeY; $row++) {
             echo "<tr>";
-            foreach (str_split($row) as $cell) {
-                $color = ($cell === 'X') ? 'black' : 'white';
-                echo "<td style='width: 20px; height: 20px; background: $color;'></td>";
+            for ($col = 0; $col < $sizeX; $col++) {
+                $charIndex = ($row * $sizeX) + $col;
+                $cell = ($charIndex < strlen($shape)) ? $shape[$charIndex] : '.';
+                $color = ($cell === 'X') ? $playerColor : 'white'; // Use player's color for X
+                echo "<td style='width: 30px; height: 30px; background: $color;'></td>";
             }
             echo "</tr>";
         }
         echo "</table>";
 
-        echo "</div>";
+        echo "</div>"; // Close piece container
     }
-    echo "</div>";
+    echo "</div>"; // Close flexbox container
 }
 
 ?>
