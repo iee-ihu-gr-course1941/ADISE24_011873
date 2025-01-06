@@ -8,43 +8,53 @@ function initializeEmptyBoard() {
 }
 
 // Function to initialize the game
-function initializeGame($player1, $player2) {
+function initializeGame() {
     try {
         $conn = getDatabaseConnection();
 
-        // Call the stored procedure to create the game and players
-        $stmt = $conn->prepare("CALL CreateGameWithPlayers(?, ?)");
-        $stmt->bind_param("ss", $player1, $player2);
+        // Retrieve player IDs and names from the session
+        if (!isset($_SESSION['player1Id'], $_SESSION['player2Id'], $_SESSION['player1Name'], $_SESSION['player2Name'])) {
+            throw new Exception("Player data not set in session. Please ensure both players are logged in.");
+        }
+
+        $player1Id = $_SESSION['player1Id'];
+        $player2Id = $_SESSION['player2Id'];
+        $player1Name = $_SESSION['player1Name'];
+        $player2Name = $_SESSION['player2Name'];
+
+        // Call the stored procedure to create the game
+        $stmt = $conn->prepare("CALL InitializeGame(?, ?, @gameId)");
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $conn->error);
+        }
+
+        $stmt->bind_param("ii", $player1Id, $player2Id);
         if (!$stmt->execute()) {
             throw new Exception("Failed to initialize the game: " . $stmt->error);
         }
 
-        // Consume the result set from CreateGameWithPlayers
-        $result = $stmt->get_result();
+        clearResults($conn);
+
+        // Fetch the game ID from the output parameter
+        $result = $conn->query("SELECT @gameId AS gameId");
+        if (!$result) {
+            throw new Exception("Failed to fetch game ID: " . $conn->error);
+        }
+
         $gameData = $result->fetch_assoc();
-        $gameId = $gameData['game_id'];
-        $player1Id = $gameData['player1_id'];
-        $player2Id = $gameData['player2_id'];
-
-        // Store game data in session variables
+        $gameId = $gameData['gameId'];
         $_SESSION['gameId'] = $gameId;
-        $_SESSION['player1Id'] = $player1Id;
-        $_SESSION['player2Id'] = $player2Id;
-        $_SESSION['currentTurn'] = $player1Id;
-
-// Close the result set and statement
-        $result->free();
-        $stmt->close();
-
+        $_SESSION['currentTurn'] = $player1Id; // Player 1 starts
+        // Display success message
         echo "Game initialized successfully!<br>";
 
         // Display the empty board
-        $board = initializeEmptyBoard();
+        $board = initializeEmptyBoard(); // Function to create an empty 11x11 board
         echo "<h3>Initial Board</h3>";
         printBoard($board);
 
-        // Show the first player's turn
-        echo "<h3>Player 1's Turn: $player1</h3>";
+        // Announce Player 1's turn
+        echo "<h3>Player 1's Turn: $player1Name</h3>";
 
         // Fetch and display Player 1's available pieces
         $stmt = $conn->prepare("CALL GetAvailablePieces(?, ?)");
@@ -62,6 +72,8 @@ function initializeGame($player1, $player2) {
         while ($row = $result->fetch_assoc()) {
             $availablePieces[] = $row;
         }
+
+        clearResults($conn);
 
         echo "<h3>Available Pieces</h3>";
         printAvailablePieces($availablePieces);
@@ -130,27 +142,68 @@ function makeMove($gameId, $playerId, $pieceId, $startX, $startY) {
             throw new Exception("Database connection is null in makeMove.");
         }
 
+// Fetch the current turn from the database
+        $stmt = $conn->prepare("SELECT current_turn FROM Games WHERE ID = ?");
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $conn->error);
+        }
+        $stmt->bind_param("i", $gameId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result->num_rows === 0) {
+            throw new Exception("Game not found with ID: " . $gameId);
+        }
+
+        $gameData = $result->fetch_assoc();
+        $_SESSION['currentTurn'] = $gameData['current_turn']; // Update the session with the current turn
+// Validate the token
+        if (!isset($_SESSION['token']) || $_SESSION['token'] !== $token) {
+            echo json_encode([
+                "success" => false,
+                "message" => "Invalid token. Please log in again."
+            ]);
+            return;
+        }
+
+        // Validate the player ID
+        if ($_SESSION['playerId'] !== $playerId) {
+            echo json_encode([
+                "success" => false,
+                "message" => "It's not your turn. Please wait for the correct player to play."
+            ]);
+            return;
+        }
+
+
         // Call the stored procedure to place the piece
         $stmt = $conn->prepare("CALL PlacePiece(?, ?, ?, ?, ?)");
         if (!$stmt) {
             throw new Exception("Statement preparation failed: " . $conn->error);
         }
-        
+
         $stmt->bind_param("iiiii", $gameId, $playerId, $pieceId, $startX, $startY);
         if (!$stmt->execute()) {
             throw new Exception("Execution failed: " . $stmt->error);
         }
-        
-         // Change turns
-        if ($_SESSION['currentTurn'] === $_SESSION['player1Id']) {
-            $_SESSION['currentTurn'] = $_SESSION['player2Id']; // Switch to Player 2
-        } else {
-            $_SESSION['currentTurn'] = $_SESSION['player1Id']; // Switch to Player 1
+
+        // Determine the next player's turn
+        $nextTurn = ($_SESSION['currentTurn'] === $_SESSION['player1Id']) ? $_SESSION['player2Id'] : $_SESSION['player1Id'];
+
+        // Update the current turn in the database
+        $stmt = $conn->prepare("UPDATE Games SET current_turn = ? WHERE ID = ?");
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $conn->error);
+        }
+        $stmt->bind_param("ii", $nextTurn, $gameId);
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to update current turn: " . $stmt->error);
         }
 
+        // Update the session with the new turn
+        $_SESSION['currentTurn'] = $nextTurn;
+
         echo "Move completed! It's now Player " . ($_SESSION['currentTurn'] === $_SESSION['player1Id'] ? "1's" : "2's") . " turn.";
-        
-        
+
         // Mark the piece as used in the PlayerPieces table
         $stmt = $conn->prepare("UPDATE PlayerPieces SET used = TRUE WHERE game_id = ? AND player_id = ? AND piece_id = ?");
         if (!$stmt) {
@@ -332,6 +385,87 @@ function printAvailablePieces($pieces) {
         echo "</div>"; // Close piece container
     }
     echo "</div>"; // Close flexbox container
+}
+
+function clearResults($conn) {
+    try {
+        while ($conn->more_results() && $conn->next_result()) {
+            $result = $conn->use_result();
+            if ($result instanceof mysqli_result) {
+                $result->free();
+            }
+        }
+    } catch (Exception $e) {
+        echo "Error clearing results: " . $e->getMessage();
+    }
+}
+
+function resumeGame($gameToken) {
+    try {
+        $conn = getDatabaseConnection();
+
+        // Fetch game data using the token
+        $stmt = $conn->prepare("CALL GetGameByToken(?, @gameID, @player1ID, @player2ID, @currentTurn)");
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $conn->error);
+        }
+        $stmt->bind_param("s", $gameToken);
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to execute statement: " . $stmt->error);
+        }
+
+        // Retrieve output parameters
+        $result = $conn->query("SELECT @gameID AS game_id, @player1ID AS player1_id, @player2ID AS player2_id, @currentTurn AS current_turn");
+        if (!$result) {
+            throw new Exception("Failed to fetch game data: " . $conn->error);
+        }
+
+        $gameData = $result->fetch_assoc();
+        $gameId = $gameData['game_id'];
+        $player1Id = $gameData['player1_id'];
+        $player2Id = $gameData['player2_id'];
+        $currentTurn = $gameData['current_turn'];
+
+        if (!$gameId || !$player1Id || !$player2Id) {
+            throw new Exception("Invalid game token or game data is incomplete.");
+        }
+
+        // Restore session data
+        $_SESSION['gameId'] = $gameId;
+        $_SESSION['gameToken'] = $gameToken;
+        $_SESSION['player1Id'] = $player1Id;
+        $_SESSION['player2Id'] = $player2Id;
+        $_SESSION['currentTurn'] = $currentTurn;
+
+        // Fetch and display the board state
+        $board = reconstructBoard($gameId);
+        echo "<h3>Resumed Board</h3>";
+        printBoard($board);
+
+        // Fetch and display available pieces for the current player
+        $stmt = $conn->prepare("CALL GetAvailablePieces(?, ?)");
+        $stmt->bind_param("ii", $currentTurn, $gameId);
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to fetch available pieces: " . $stmt->error);
+        }
+
+        $result = $stmt->get_result();
+        $availablePieces = [];
+        while ($row = $result->fetch_assoc()) {
+            $availablePieces[] = $row;
+        }
+
+        echo "<h3>Available Pieces</h3>";
+        printAvailablePieces($availablePieces);
+
+        echo "<h3>Current Turn: Player " . ($currentTurn === $player1Id ? "1" : "2") . "</h3>";
+    } catch (Exception $e) {
+        echo "Error: " . $e->getMessage();
+    } finally {
+        if (isset($conn)) {
+            $conn->close();
+        }
+    }
 }
 
 ?>
