@@ -79,9 +79,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $gameId = $gameData['game_id'];
                     $gameToken = $gameData['game_token'];
 
-                    // Store game data in the session
+                    $_SESSION['player1Id'] = $player1Id;
+                    $_SESSION['player2Id'] = $player2Id;
                     $_SESSION['gameId'] = $gameId;
                     $_SESSION['gameToken'] = $gameToken;
+
+                    $stmt = $conn->prepare("SELECT ID, Name FROM Players WHERE ID IN (?, ?)");
+                    $stmt->bind_param("ii", $player1Id, $player2Id);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+
+                    while ($row = $result->fetch_assoc()) {
+                        if ($row['ID'] == $player1Id) {
+                            $_SESSION['player1Name'] = $row['Name'];
+                        } elseif ($row['ID'] == $player2Id) {
+                            $_SESSION['player2Name'] = $row['Name'];
+                        }
+                    }
+
+                    // Set the initial turn
+                    $_SESSION['currentTurn'] = $player1Id;
 
                     // Display success message
                     echo json_encode([
