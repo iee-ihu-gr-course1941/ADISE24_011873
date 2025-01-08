@@ -34,71 +34,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
 
             case 'createGame':
-    if (
-        isset($_SESSION['player1Id'], $_SESSION['player2Id']) &&
-        isset($_SESSION['player1Name'], $_SESSION['player2Name'])
-    ) {
-        try {
-            $player1Id = $_SESSION['player1Id'];
-            $player2Id = $_SESSION['player2Id'];
+                try {
+                    // Ensure player1Id and player2Id are provided in the input
+                    if (!isset($input['player1Id'], $input['player2Id'])) {
+                        echo json_encode([
+                            "success" => false,
+                            "message" => "Player1Id and Player2Id are required."
+                        ]);
+                        break; // This exits the 'createGame' case safely
+                    }
 
-            $conn = getDatabaseConnection();
+                    $player1Id = $input['player1Id'];
+                    $player2Id = $input['player2Id'];
 
-            // Call InitializeGame stored procedure
-            $stmt = $conn->prepare("CALL InitializeGame(?, ?, @gameID, @gameToken)");
-            if (!$stmt) {
-                throw new Exception("Failed to prepare stored procedure: " . $conn->error);
-            }
+                    $conn = getDatabaseConnection();
 
-            $stmt->bind_param("ii", $player1Id, $player2Id);
-            if (!$stmt->execute()) {
-                throw new Exception("Failed to execute stored procedure: " . $stmt->error);
-            }
+                    // Call InitializeGame stored procedure
+                    $stmt = $conn->prepare("CALL InitializeGame(?, ?, @gameID, @gameToken)");
+                    if (!$stmt) {
+                        throw new Exception("Failed to prepare stored procedure: " . $conn->error);
+                    }
 
-            // Clear any remaining results
-            while ($conn->more_results() && $conn->next_result()) {
-                if ($result = $conn->store_result()) {
-                    $result->free();
+                    $stmt->bind_param("ii", $player1Id, $player2Id);
+                    if (!$stmt->execute()) {
+                        throw new Exception("Failed to execute stored procedure: " . $stmt->error);
+                    }
+
+                    // Process all result sets
+                    do {
+                        if ($result = $stmt->get_result()) {
+                            $result->free();
+                        }
+                    } while ($stmt->more_results() && $stmt->next_result());
+
+                    // Fetch output parameters
+                    $result = $conn->query("SELECT @gameID AS game_id, @gameToken AS game_token");
+                    if (!$result) {
+                        throw new Exception("Failed to fetch output parameters.");
+                    }
+
+                    $gameData = $result->fetch_assoc();
+                    $gameId = $gameData['game_id'];
+                    $gameToken = $gameData['game_token'];
+
+                    echo json_encode([
+                        "success" => true,
+                        "message" => "Game created successfully.",
+                        "gameId" => $gameId,
+                        "gameToken" => $gameToken
+                    ]);
+                    
+                    setupGame();
+                    
+                } catch (Exception $e) {
+                    echo json_encode([
+                        "success" => false,
+                        "message" => $e->getMessage()
+                    ]);
+                } finally {
+                    if (isset($conn)) {
+                        $conn->close();
+                    }
                 }
-            }
-
-            // Fetch the output parameters
-            $result = $conn->query("SELECT @gameID AS game_id, @gameToken AS game_token");
-            if (!$result) {
-                throw new Exception("Failed to fetch output parameters.");
-            }
-
-            $gameData = $result->fetch_assoc();
-            $gameId = $gameData['game_id'];
-            $gameToken = $gameData['game_token'];
-
-            $_SESSION['gameId'] = $gameId;
-            $_SESSION['gameToken'] = $gameToken;
-
-            echo json_encode([
-                "success" => true,
-                "message" => "Game created successfully.",
-                "gameId" => $gameId,
-                "gameToken" => $gameToken
-            ]);
-        } catch (Exception $e) {
-            echo json_encode([
-                "success" => false,
-                "message" => $e->getMessage()
-            ]);
-        } finally {
-            if (isset($conn)) {
-                $conn->close();
-            }
-        }
-    } else {
-        echo json_encode([
-            "success" => false,
-            "message" => "Both players must be logged in before creating a game."
-        ]);
-    }
-    break;
-
+                break;
 
             case 'makeMove':
                 if (isset($_POST['game_id']) && isset($_POST['player_id']) &&

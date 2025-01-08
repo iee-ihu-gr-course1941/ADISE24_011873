@@ -8,53 +8,27 @@ function initializeEmptyBoard() {
 }
 
 // Function to initialize the game
-function initializeGame() {
+function setupGame() {
     try {
         $conn = getDatabaseConnection();
-
-        // Retrieve player IDs and names from the session
-        if (!isset($_SESSION['player1Id'], $_SESSION['player2Id'], $_SESSION['player1Name'], $_SESSION['player2Name'])) {
-            throw new Exception("Player data not set in session. Please ensure both players are logged in.");
-        }
 
         $player1Id = $_SESSION['player1Id'];
         $player2Id = $_SESSION['player2Id'];
         $player1Name = $_SESSION['player1Name'];
         $player2Name = $_SESSION['player2Name'];
 
-        // Call the stored procedure to create the game
-        $stmt = $conn->prepare("CALL InitializeGame(?, ?, @gameId)");
-        if (!$stmt) {
-            throw new Exception("Failed to prepare statement: " . $conn->error);
-        }
+        $gameId = $_SESSION['gameId'];
 
-        $stmt->bind_param("ii", $player1Id, $player2Id);
-        if (!$stmt->execute()) {
-            throw new Exception("Failed to initialize the game: " . $stmt->error);
-        }
+        $currentTurn = $_SESSION['currentTurn'];
 
-        clearResults($conn);
+        echo "Game is ready! Here's the initial setup:<br>";
 
-        // Fetch the game ID from the output parameter
-        $result = $conn->query("SELECT @gameId AS gameId");
-        if (!$result) {
-            throw new Exception("Failed to fetch game ID: " . $conn->error);
-        }
-
-        $gameData = $result->fetch_assoc();
-        $gameId = $gameData['gameId'];
-        $_SESSION['gameId'] = $gameId;
-        $_SESSION['currentTurn'] = $player1Id; // Player 1 starts
-        // Display success message
-        echo "Game initialized successfully!<br>";
-
-        // Display the empty board
-        $board = initializeEmptyBoard(); // Function to create an empty 11x11 board
         echo "<h3>Initial Board</h3>";
+        $board = reconstructBoard($_SESSION['gameId']); // Fetch the current board state!
         printBoard($board);
 
-        // Announce Player 1's turn
-        echo "<h3>Player 1's Turn: $player1Name</h3>";
+        $currentPlayerName = ($currentTurn === $_SESSION['player1Id']) ? $_SESSION['player1Name'] : $_SESSION['player2Name'];
+        echo "<h3>It's $currentPlayerName's Turn!</h3>";
 
         // Fetch and display Player 1's available pieces
         $stmt = $conn->prepare("CALL GetAvailablePieces(?, ?)");
@@ -62,7 +36,7 @@ function initializeGame() {
             throw new Exception("Failed to prepare statement for available pieces: " . $conn->error);
         }
 
-        $stmt->bind_param("ii", $player1Id, $gameId);
+        $stmt->bind_param("ii", $currentTurn, $gameId);
         if (!$stmt->execute()) {
             throw new Exception("Failed to fetch available pieces: " . $stmt->error);
         }
