@@ -35,7 +35,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             case 'createGame':
                 try {
-                    // Ensure necessary inputs are provided
                     if (!isset($input['player1Id'], $input['player2Id'], $input['player1Token'], $input['player2Token'])) {
                         echo json_encode([
                             "success" => false,
@@ -51,44 +50,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $conn = getDatabaseConnection();
 
-                    // Call InitializeGame stored procedure
                     $stmt = $conn->prepare("CALL InitializeGame(?, ?, ?, ?, @gameId, @gameToken)");
-                    if (!$stmt) {
-                        throw new Exception("Failed to prepare stored procedure: " . $conn->error);
-                    }
-
                     $stmt->bind_param("iiss", $player1Id, $player2Id, $player1Token, $player2Token);
                     if (!$stmt->execute()) {
                         throw new Exception("Failed to execute stored procedure: " . $stmt->error);
                     }
 
-                    // Clear remaining results
                     while ($conn->more_results() && $conn->next_result()) {
                         if ($result = $conn->store_result()) {
                             $result->free();
                         }
                     }
 
-                    // Fetch the output parameters
                     $result = $conn->query("SELECT @gameId AS game_id, @gameToken AS game_token");
                     if (!$result) {
                         throw new Exception("Failed to fetch output parameters.");
                     }
 
                     $gameData = $result->fetch_assoc();
-                    $gameId = $gameData['game_id'];
-                    $gameToken = $gameData['game_token'];
+                    $_SESSION['gameId'] = $gameData['game_id'];
+                    $_SESSION['gameToken'] = $gameData['game_token'];
 
-                    // Store game data in session
-                    $_SESSION['gameId'] = $gameId;
-                    $_SESSION['gameToken'] = $gameToken;
-                    $_SESSION['currentTurn'] = $player1Id; // It's player 1's turn
-                    // Fetch and store player names
                     $stmt = $conn->prepare("SELECT ID, username FROM Players WHERE ID IN (?, ?)");
                     $stmt->bind_param("ii", $player1Id, $player2Id);
                     $stmt->execute();
                     $result = $stmt->get_result();
-
                     while ($row = $result->fetch_assoc()) {
                         if ($row['ID'] == $player1Id) {
                             $_SESSION['player1Name'] = $row['username'];
@@ -97,11 +83,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
-                    // Display success message and set up the game
+                    $_SESSION['player1Id'] = $player1Id;
+                    $_SESSION['player2Id'] = $player2Id;
+                    $_SESSION['currentTurn'] = $player1Id;
+
                     echo "Game Created Successfully!<br>"
-                    . "Game ID: $gameId<br>"
-                    . "Game Token: $gameToken<br>"
-                    . "Setting up board and pieces<br>";
+                    . "Game ID: {$_SESSION['gameId']}<br>"
+                    . "Game Token: {$_SESSION['gameToken']}<br>";
 
                     setupGame();
                 } catch (Exception $e) {

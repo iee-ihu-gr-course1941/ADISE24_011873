@@ -20,7 +20,6 @@ function setupGame() {
         $gameId = $_SESSION['gameId'];
 
         $currentTurn = $_SESSION['currentTurn'];
-
         echo "Game is ready! Here's the initial setup:<br>";
 
         echo "<h3>Initial Board</h3>";
