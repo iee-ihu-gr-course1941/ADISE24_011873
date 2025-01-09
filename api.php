@@ -62,7 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         throw new Exception("Failed to execute stored procedure: " . $stmt->error);
                     }
 
-                    // Clear any remaining results
+                    // Clear remaining results
                     while ($conn->more_results() && $conn->next_result()) {
                         if ($result = $conn->store_result()) {
                             $result->free();
@@ -79,11 +79,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $gameId = $gameData['game_id'];
                     $gameToken = $gameData['game_token'];
 
-                    $_SESSION['player1Id'] = $player1Id;
-                    $_SESSION['player2Id'] = $player2Id;
+                    // Store game data in session
                     $_SESSION['gameId'] = $gameId;
                     $_SESSION['gameToken'] = $gameToken;
 
+                    // Fetch and store player names
                     $stmt = $conn->prepare("SELECT ID, username FROM Players WHERE ID IN (?, ?)");
                     $stmt->bind_param("ii", $player1Id, $player2Id);
                     $stmt->execute();
@@ -91,22 +91,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     while ($row = $result->fetch_assoc()) {
                         if ($row['ID'] == $player1Id) {
-                            $_SESSION['player1Name'] = $row['Name'];
+                            $_SESSION['player1Name'] = $row['username'];
                         } elseif ($row['ID'] == $player2Id) {
-                            $_SESSION['player2Name'] = $row['Name'];
+                            $_SESSION['player2Name'] = $row['username'];
                         }
                     }
 
-                    // Set the initial turn
-                    $_SESSION['currentTurn'] = $player1Id;
-
-                    // Display success message
+                    // Display success message and set up the game
                     echo "Game Created Successfully!<br>"
                     . "Game ID: $gameId<br>"
-                    . "Game Token: $gameToken<br>
-";
+                    . "Game Token: $gameToken<br>"
+                    . "Setting up board and pieces<br>";
 
-                    // Call setupGame to prepare the game environment
                     setupGame();
                 } catch (Exception $e) {
                     echo json_encode([
@@ -192,7 +188,7 @@ function loginPlayer($username, $password) {
         $conn = getDatabaseConnection();
 
         // Call the stored procedure for login
-        $stmt = $conn->prepare("CALL LoginPlayer(?, ?, @playerId)");
+        $stmt = $conn->prepare("CALL LoginPlayer(?, ?, @playerId, @token)");
         $stmt->bind_param("ss", $username, $password);
         if (!$stmt->execute()) {
             throw new Exception("Failed to log in player: " . $stmt->error);

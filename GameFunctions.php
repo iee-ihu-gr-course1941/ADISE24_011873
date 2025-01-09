@@ -27,7 +27,7 @@ function setupGame() {
         $board = reconstructBoard($_SESSION['gameId']); // Fetch the current board state!
         printBoard($board);
 
-        $currentPlayerName = ($currentTurn === $_SESSION['player1Id']) ? $_SESSION['player1Name'] : $_SESSION['player2Name'];
+        $currentPlayerName = ($currentTurn === $player1Id) ? $player1Name : $player2Name;
         echo "<h3>It's $currentPlayerName's Turn!</h3>";
 
         // Fetch and display Player 1's available pieces
@@ -334,6 +334,9 @@ function printAvailablePieces($pieces) {
 
     $playerColor = ($_SESSION['currentTurn'] === $_SESSION['player1Id']) ? 'red' : 'blue';
     echo "<div style='display: flex; flex-wrap: wrap; gap: 20px;'>"; // Flexbox for layout
+
+
+
     foreach ($pieces as $piece) {
         echo "<div style='margin: 10px;'>"; // Container for each piece
         echo "<p>Piece ID: {$piece['ID']} (Size: {$piece['sizeX']}x{$piece['sizeY']})</p>";
