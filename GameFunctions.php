@@ -115,7 +115,7 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
         }
 
         // Determine the next player's turn
-        $nextTurn = ($currentTurn === $_SESSION['playerId']) ? $playerId : $currentTurn;
+        $nextTurn = ($currentTurn === $_SESSION['player1Id']) ? $_SESSION['player2Id'] : $_SESSION['player1Id'];
 
         // Update the current turn in the database
         $stmt = $conn->prepare("UPDATE Games SET current_turn = ? WHERE ID = ?");
@@ -126,6 +126,8 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
         if (!$stmt->execute()) {
             throw new Exception("Failed to update current turn: " . $stmt->error);
         }
+        
+        $_SESSION['currentTurn'] = $nextTurn;
 
         // Reconstruct and display the updated board
         $board = reconstructBoard($gameId);
