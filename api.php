@@ -82,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Store game data in session
                     $_SESSION['gameId'] = $gameId;
                     $_SESSION['gameToken'] = $gameToken;
-
+                    $_SESSION['currentTurn'] = $player1Id; // It's player 1's turn
                     // Fetch and store player names
                     $stmt = $conn->prepare("SELECT ID, username FROM Players WHERE ID IN (?, ?)");
                     $stmt->bind_param("ii", $player1Id, $player2Id);
@@ -117,18 +117,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
 
             case 'makeMove':
-                if (isset($_POST['game_id']) && isset($_POST['player_id']) &&
-                        isset($_POST['piece_id']) && isset($_POST['startX']) && isset($_POST['startY'])) {
+                try {
+                    // Ensure all required parameters are provided
+                    if (!isset($input['gameId'], $input['playerId'], $input['gameToken'], $input['pieceId'], $input['startX'], $input['startY'])) {
+                        echo json_encode([
+                            "success" => false,
+                            "message" => "Missing parameters. Required: 'gameId', 'playerId', 'gameToken', 'pieceId', 'startX', 'startY'."
+                        ]);
+                        break;
+                    }
 
-                    $gameId = $_POST['game_id'];
-                    $playerId = $_POST['player_id'];
-                    $pieceId = $_POST['piece_id'];
-                    $startX = $_POST['startX'];
-                    $startY = $_POST['startY'];
+                    // Extract parameters
+                    $gameId = $input['gameId'];
+                    $playerId = $input['playerId'];
+                    $gameToken = $input['gameToken'];
+                    $pieceId = $input['pieceId'];
+                    $startX = $input['startX'];
+                    $startY = $input['startY'];
 
-                    makeMove($gameId, $playerId, $pieceId, $startX, $startY);
-                } else {
-                    echo "Error: Missing parameters. Required: 'game_id', 'player_id', 'piece_id', 'startX', 'startY'.";
+                    // Call the makeMove function
+                    makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY);
+                } catch (Exception $e) {
+                    echo json_encode([
+                        "success" => false,
+                        "message" => $e->getMessage()
+                    ]);
                 }
                 break;
 
