@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['gameId'] = $gameId;
                     $_SESSION['gameToken'] = $gameToken;
 
-                    $stmt = $conn->prepare("SELECT ID, Name FROM Players WHERE ID IN (?, ?)");
+                    $stmt = $conn->prepare("SELECT ID, username FROM Players WHERE ID IN (?, ?)");
                     $stmt->bind_param("ii", $player1Id, $player2Id);
                     $stmt->execute();
                     $result = $stmt->get_result();
@@ -101,12 +101,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['currentTurn'] = $player1Id;
 
                     // Display success message
-                    echo json_encode([
-                        "success" => true,
-                        "message" => "Game created successfully.",
-                        "gameId" => $gameId,
-                        "gameToken" => $gameToken
-                    ]);
+                    echo "Game Created Successfully!<br>"
+                    . "Game ID: $gameId<br>"
+                    . "Game Token: $gameToken<br>
+";
 
                     // Call setupGame to prepare the game environment
                     setupGame();
@@ -208,7 +206,7 @@ function loginPlayer($username, $password) {
         }
 
         // Fetch the player ID from the output parameter
-        $result = $conn->query("SELECT @playerId AS playerId, token FROM Players WHERE ID = @playerId");
+        $result = $conn->query("SELECT @playerId AS playerId, @token AS token");
         if (!$result) {
             throw new Exception("Failed to fetch player ID and token during login.");
         }
@@ -241,10 +239,6 @@ function loginPlayer($username, $password) {
             $conn->close();
         }
     }
-}
-
-function generateToken() {
-    return hash('sha256', random_bytes(32));
 }
 
 function debugSession() {
