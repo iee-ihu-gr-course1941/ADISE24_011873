@@ -99,6 +99,7 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
 
         // Call the stored procedure to place the piece
         $stmt = $conn->prepare("CALL PlacePiece(?, ?, ?, ?, ?)");
+        
         if (!$stmt) {
             throw new Exception("Failed to prepare stored procedure: " . $conn->error);
         }
@@ -106,7 +107,7 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
         if (!$stmt->execute()) {
             throw new Exception("Failed to execute stored procedure: " . $stmt->error);
         }
-
+        
         // Clear any remaining results to prevent "commands out of sync" error
         while ($conn->more_results() && $conn->next_result()) {
             if ($result = $conn->store_result()) {
