@@ -203,6 +203,121 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 calculateWinner($gameId, $userToken);
                 break;
 
+            case 'resumeGame':
+                try {
+                    if (!isset($input['gameToken'], $input['playerToken'])) {
+                        echo json_encode([
+                            "success" => false,
+                            "message" => "GameToken and PlayerToken are required."
+                        ]);
+                        break;
+                    }
+
+                    $gameToken = $input['gameToken'];
+                    $playerToken = $input['playerToken'];
+
+                    $conn = getDatabaseConnection();
+
+                    // Validate the game token
+                    $stmt = $conn->prepare("SELECT ID, current_turn FROM Games WHERE game_Token = ? AND game_Token != 'FINISHED'");
+                    if (!$stmt) {
+                        throw new Exception("Failed to prepare statement: " . $conn->error);
+                    }
+                    $stmt->bind_param("s", $gameToken);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+
+                    if ($result->num_rows === 0) {
+                        echo json_encode(["success" => false, "message" => "Invalid or finished game token."]);
+                        break;
+                    }
+
+                    $gameData = $result->fetch_assoc();
+                    $gameId = $gameData['ID'];
+                    $currentTurn = $gameData['current_turn'];
+                    $result->free();
+                    $stmt->close();
+
+                    // Validate the player's token
+                    $stmt = $conn->prepare("SELECT 1 FROM Players WHERE token = ? AND ID IN (
+            SELECT player1 FROM Games WHERE ID = ?
+            UNION
+            SELECT player2 FROM Games WHERE ID = ?
+        )");
+                    if (!$stmt) {
+                        throw new Exception("Failed to prepare statement: " . $conn->error);
+                    }
+                    $stmt->bind_param("sii", $playerToken, $gameId, $gameId);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+
+                    if ($result->num_rows === 0) {
+                        echo json_encode(["success" => false, "message" => "Invalid player token."]);
+                        break;
+                    }
+
+                    $result->free();
+                    $stmt->close();
+
+                    // Fetch player details and set in session if not already set
+                    $stmt = $conn->prepare("SELECT ID, username FROM Players WHERE ID IN (
+            SELECT player1 FROM Games WHERE ID = ? UNION SELECT player2 FROM Games WHERE ID = ?)");
+                    if (!$stmt) {
+                        throw new Exception("Failed to prepare statement for fetching player details: " . $conn->error);
+                    }
+                    $stmt->bind_param("ii", $gameId, $gameId);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+
+                    while ($row = $result->fetch_assoc()) {
+                        if (!isset($_SESSION['player1Id']) && $row['ID'] === $currentTurn) {
+                            $_SESSION['player1Id'] = $row['ID'];
+                            $_SESSION['player1Name'] = $row['username'];
+                        } elseif (!isset($_SESSION['player2Id'])) {
+                            $_SESSION['player2Id'] = $row['ID'];
+                            $_SESSION['player2Name'] = $row['username'];
+                        }
+                    }
+
+                    $result->free();
+                    $stmt->close();
+
+                    // Reconstruct the board
+                    $board = reconstructBoard($gameId);
+
+                    // Print the board
+                    echo "<h3>Resumed Game Board</h3>";
+                    printBoard($board);
+
+                    // Announce the next player's turn
+                    $nextPlayerName = ($currentTurn === $_SESSION['player1Id']) ? $_SESSION['player1Name'] : $_SESSION['player2Name'];
+                    echo "<h3 style='font-weight: bold; margin-top: 20px;'>Next Turn: $nextPlayerName</h3>";
+
+                    // Fetch and display available pieces for the current player
+                    $stmt = $conn->prepare("CALL GetAvailablePieces(?, ?)");
+                    if (!$stmt) {
+                        throw new Exception("Failed to prepare statement for fetching available pieces: " . $conn->error);
+                    }
+                    $stmt->bind_param("ii", $currentTurn, $gameId);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+
+                    $availablePieces = [];
+                    while ($row = $result->fetch_assoc()) {
+                        $availablePieces[] = $row;
+                    }
+
+                    echo "<h3>Available Pieces</h3>";
+                    printAvailablePieces($availablePieces);
+                } catch (Exception $e) {
+                    echo json_encode(["success" => false, "message" => $e->getMessage()]);
+                } finally {
+                    if (isset($conn)) {
+                        $conn->close();
+                    }
+                }
+                break;
+
             default:
                 echo json_encode(["success" => false, "message" => "Unknown method '$method'."]);
                 break;

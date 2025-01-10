@@ -454,6 +454,7 @@ function calculateWinner($gameId, $userToken) {
         echo "Player 1 Score: $player1Score<br>";
         echo "Player 2 Score: $player2Score<br>";
         echo "<strong style='color: green;'>$winnerMessage</strong><br>";
+
     } catch (Exception $e) {
         echo "Error: " . $e->getMessage() . "<br>";
     } finally {
@@ -462,5 +463,6 @@ function calculateWinner($gameId, $userToken) {
         }
     }
 }
+
 
 ?>
