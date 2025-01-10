@@ -318,6 +318,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
 
+            case 'logout':
+                try {
+                    // Ensure the playerToken is provided
+                    if (!isset($input['playerToken'])) {
+                        echo json_encode([
+                            "success" => false,
+                            "message" => "Player token is required for logout."
+                        ]);
+                        break;
+                    }
+
+                    $playerToken = $input['playerToken'];
+
+                    $conn = getDatabaseConnection();
+
+                    // Validate the player's token and fetch the username
+                    $stmt = $conn->prepare("SELECT username FROM Players WHERE token = ?");
+                    if (!$stmt) {
+                        throw new Exception("Failed to prepare statement: " . $conn->error);
+                    }
+                    $stmt->bind_param("s", $playerToken);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+
+                    if ($result->num_rows === 0) {
+                        echo json_encode(["success" => false, "message" => "Invalid player token."]);
+                        break;
+                    }
+
+                    $playerData = $result->fetch_assoc();
+                    $username = $playerData['username'];
+                    $result->free();
+                    $stmt->close();
+
+                    // Update the token in the database to null
+                    $stmt = $conn->prepare("UPDATE Players SET token = NULL WHERE token = ?");
+                    if (!$stmt) {
+                        throw new Exception("Failed to prepare statement to clear token: " . $conn->error);
+                    }
+                    $stmt->bind_param("s", $playerToken);
+                    if (!$stmt->execute()) {
+                        throw new Exception("Failed to execute statement to clear token: " . $stmt->error);
+                    }
+
+                    // Display logout message
+                    echo "<h3 style='font-weight: bold; color: green;'>$username has logged out, hope to see you soon!</h3>";
+                } catch (Exception $e) {
+                    echo json_encode(["success" => false, "message" => $e->getMessage()]);
+                } finally {
+                    if (isset($conn)) {
+                        $conn->close();
+                    }
+                }
+                break;
+
             default:
                 echo json_encode(["success" => false, "message" => "Unknown method '$method'."]);
                 break;
