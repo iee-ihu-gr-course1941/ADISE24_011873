@@ -99,7 +99,7 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
 
         // Call the stored procedure to place the piece
         $stmt = $conn->prepare("CALL PlacePiece(?, ?, ?, ?, ?)");
-        
+
         if (!$stmt) {
             throw new Exception("Failed to prepare stored procedure: " . $conn->error);
         }
@@ -107,7 +107,7 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
         if (!$stmt->execute()) {
             throw new Exception("Failed to execute stored procedure: " . $stmt->error);
         }
-        
+
         // Clear any remaining results to prevent "commands out of sync" error
         while ($conn->more_results() && $conn->next_result()) {
             if ($result = $conn->store_result()) {
@@ -127,7 +127,7 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
         if (!$stmt->execute()) {
             throw new Exception("Failed to update current turn: " . $stmt->error);
         }
-        
+
         $_SESSION['currentTurn'] = $nextTurn;
 
         // Reconstruct and display the updated board
@@ -135,7 +135,7 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
         echo "<h3>Updated Board</h3>";
         printBoard($board);
 
-        // Fetch the next player's available pieces
+// Fetch the next player's available pieces
         $stmt = $conn->prepare("CALL GetAvailablePieces(?, ?)");
         if (!$stmt) {
             throw new Exception("Failed to prepare statement for available pieces: " . $conn->error);
@@ -144,7 +144,7 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
         $stmt->execute();
         $result = $stmt->get_result();
 
-        // Collect and display the next player's available pieces
+// Collect and display the next player's available pieces
         $availablePieces = [];
         while ($row = $result->fetch_assoc()) {
             $availablePieces[] = $row;
@@ -153,7 +153,24 @@ function makeMove($gameId, $playerId, $gameToken, $pieceId, $startX, $startY) {
         echo "<h3>Available Pieces</h3>";
         printAvailablePieces($availablePieces);
 
-        echo "Move completed! It's now Player " . ($nextTurn === $playerId ? "2's" : "1's") . " turn.";
+// Fetch the next player's name
+        $stmt = $conn->prepare("SELECT username FROM Players WHERE ID = ?");
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement for next player's name: " . $conn->error);
+        }
+        $stmt->bind_param("i", $nextTurn);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows === 0) {
+            throw new Exception("Next player not found in the database.");
+        }
+
+        $nextPlayer = $result->fetch_assoc();
+        $nextPlayerName = $nextPlayer['username'];
+
+// Display the turn message in bold below the board
+        echo "<p style='font-weight: bold; text-align: center;'>Move completed! It's now $nextPlayerName's turn.</p>";
     } catch (Exception $e) {
         echo "Error: " . $e->getMessage();
     } finally {

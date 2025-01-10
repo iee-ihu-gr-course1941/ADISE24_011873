@@ -131,7 +131,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         "message" => $e->getMessage()
                     ]);
                 }
-                
+
+                break;
+
+            case 'printCurrentBoard':
+                try {
+                    // Ensure gameId is provided
+                    if (!isset($input['gameId'])) {
+                        echo json_encode([
+                            "success" => false,
+                            "message" => "gameId is required."
+                        ]);
+                        break;
+                    }
+
+                    $gameId = $input['gameId'];
+                    $conn = getDatabaseConnection();
+
+                    // Fetch the current turn
+                    $stmt = $conn->prepare("SELECT current_turn FROM Games WHERE ID = ?");
+                    $stmt->bind_param("i", $gameId);
+                    $stmt->execute();
+
+                    $result = $stmt->get_result();
+                    if (!$result || $result->num_rows === 0) {
+                        throw new Exception("Game ID not found.");
+                    }
+
+                    $gameData = $result->fetch_assoc();
+                    $currentTurn = $gameData['current_turn'];
+
+                    // Determine the player's name for the current turn
+                    $stmt = $conn->prepare("SELECT username FROM Players WHERE ID = ?");
+                    $stmt->bind_param("i", $currentTurn);
+                    $stmt->execute();
+
+                    $result = $stmt->get_result();
+                    if (!$result || $result->num_rows === 0) {
+                        throw new Exception("Player not found for current turn.");
+                    }
+
+                    $playerData = $result->fetch_assoc();
+                    $currentPlayerName = $playerData['username'];
+
+                    // Reconstruct the board
+                    $board = reconstructBoard($gameId); // Reuse existing reconstruct logic
+
+                    echo "<h3>Current Board for Game ID: $gameId</h3>";
+                    printBoard($board); // Reuse existing printBoard function
+                    // Display the current player's turn
+                    echo "<h3>It's $currentPlayerName's turn!</h3>";
+                } catch (Exception $e) {
+                    echo json_encode([
+                        "success" => false,
+                        "message" => $e->getMessage()
+                    ]);
+                }
                 break;
 
             default:
