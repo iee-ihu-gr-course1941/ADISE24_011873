@@ -387,4 +387,80 @@ function resumeGame($gameToken) {
     }
 }
 
+function calculateWinner($gameId, $userToken) {
+    try {
+        $conn = getDatabaseConnection();
+
+        // Validate the game exists
+        $stmt = $conn->prepare("SELECT player1, player2 FROM Games WHERE ID = ?");
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $conn->error);
+        }
+        $stmt->bind_param("i", $gameId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows === 0) {
+            echo "Error: Game not found with ID: $gameId.<br>";
+            return;
+        }
+
+        $gameData = $result->fetch_assoc();
+        $player1Id = $gameData['player1'];
+        $player2Id = $gameData['player2'];
+        $result->free();
+
+        // Validate the user token
+        $stmt = $conn->prepare("SELECT ID FROM Players WHERE token = ? AND ID IN (?, ?)");
+        if (!$stmt) {
+            throw new Exception("Failed to prepare token validation statement: " . $conn->error);
+        }
+        $stmt->bind_param("sii", $userToken, $player1Id, $player2Id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows === 0) {
+            echo "Error: Invalid token. Only players of this game can finish it.<br>";
+            return;
+        }
+
+        $result->free();
+
+        // Call the stored procedure to calculate the winner
+        $stmt = $conn->prepare("CALL CalculateWinnerUsingBoardState(?, @player1Score, @player2Score, @winnerId)");
+        if (!$stmt) {
+            throw new Exception("Failed to prepare procedure: " . $conn->error);
+        }
+        $stmt->bind_param("i", $gameId);
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to execute procedure: " . $stmt->error);
+        }
+
+        // Fetch the output parameters
+        $result = $conn->query("SELECT @player1Score AS player1Score, @player2Score AS player2Score, @winnerId AS winnerId");
+        if (!$result) {
+            throw new Exception("Failed to fetch procedure results.");
+        }
+
+        $scores = $result->fetch_assoc();
+        $player1Score = $scores['player1Score'];
+        $player2Score = $scores['player2Score'];
+        $winnerId = $scores['winnerId'];
+        $winnerMessage = $winnerId ? "Player $winnerId wins!" : "It's a tie!";
+
+        // Display results in styled HTML
+        echo "<h2 style='font-size: 24px;'>Game Over</h2>";
+        echo "Game ID: $gameId<br>";
+        echo "Player 1 Score: $player1Score<br>";
+        echo "Player 2 Score: $player2Score<br>";
+        echo "<strong style='color: green;'>$winnerMessage</strong><br>";
+    } catch (Exception $e) {
+        echo "Error: " . $e->getMessage() . "<br>";
+    } finally {
+        if (isset($conn)) {
+            $conn->close();
+        }
+    }
+}
+
 ?>

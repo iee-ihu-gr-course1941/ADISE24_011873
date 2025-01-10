@@ -189,6 +189,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
 
+            case 'calculateWinner':
+                if (!isset($input['gameId'])) {
+                    echo json_encode([
+                        "success" => false,
+                        "message" => "gameId is required."
+                    ]);
+                    break;
+                }
+
+                $gameId = $input['gameId'];
+                $userToken = $input['userToken'];
+                calculateWinner($gameId, $userToken);
+                break;
+
             default:
                 echo json_encode(["success" => false, "message" => "Unknown method '$method'."]);
                 break;
